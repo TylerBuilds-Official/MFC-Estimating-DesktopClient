@@ -12,6 +12,8 @@ import sys
 import fitz
 from typing import Dict, List, Optional, Literal, Callable
 
+from openai import OpenAI
+from anthropic import Anthropic
 from dotenv import load_dotenv
 
 # For PyInstaller: load .env from _internal folder
@@ -29,6 +31,7 @@ from plan_classification import (
     OpenAIClassifier,
     ClaudeClassifier,
     PageClassification,
+    AISummaryService,
     extract_image_from_region,
     optimize_image_for_api,
     get_pdf_page_count,
@@ -118,7 +121,7 @@ def classify_pdf(
             progress_callback(data)
 
     try:
-        # === PHASE 1: Region Detection ===
+        #  PHASE 1: Region Detection
         region_info = None
         if region is None and auto_detect_region:
             _report_progress({"type": "progress", "phase": "region_detection", "status": "started"})
@@ -154,13 +157,13 @@ def classify_pdf(
         if region is None:
             return {"error": "No region provided and auto_detect_region=False"}
 
-        # === PHASE 2: Classification ===
+        #  PHASE 2: Classification
         page_count = get_pdf_page_count(pdf_path)
         all_results: List[PageClassification] = []
         text_classified_count = 0
         needs_ai_pages: List[int] = []
 
-        # === PHASE 2a: Text-First Classification ===
+        #  PHASE 2a: Text-First Classification
         if text_first:
             print(f"[Text] Extracting text from {page_count} pages...")
             text_map = bulk_extract_text_from_regions(pdf_path, region)
@@ -199,7 +202,7 @@ def classify_pdf(
         else:
             needs_ai_pages = list(range(page_count))
 
-        # === PHASE 2b: AI Classification for remaining pages ===
+        #  PHASE 2b: AI Classification for remaining pages
         ai_results = []
         provider_name = "text_only"
 
@@ -261,7 +264,7 @@ def classify_pdf(
         all_results.sort(key=lambda r: r.page_num)
         results_dicts = [r.to_dict() for r in all_results]
 
-        # === PHASE 3: Breakout Files ===
+        #  PHASE 3: Breakout Files
         created_files = {}
         if breakout_files:
             _report_progress({"type": "progress", "phase": "breakout", "status": "creating_files"})
@@ -285,8 +288,39 @@ def classify_pdf(
 
             _report_progress({"type": "progress", "phase": "breakout", "status": "completed"})
 
-        # === Build Summary ===
+        #  Build Summary
         summary = _build_summary(all_results, region_info, created_files, provider_name)
+
+        #  Phase 4: AI Summary
+        ai_summary = None
+        try:
+            _report_progress({"type": "progress", "phase": "ai_summary", "status": "started"})
+
+            # Build the AI client based on the selected provider
+            if selected_provider == "openai" and openai_api_key:
+                ai_client = OpenAI(api_key=openai_api_key)
+
+            elif selected_provider == "anthropic" and anthropic_api_key:
+                ai_client = Anthropic(api_key=anthropic_api_key)
+
+            else:
+                ai_client = None
+
+            if ai_client:
+                summary_service = AISummaryService(client=ai_client)
+                validated = sum(1 for r in all_results if r.validated)
+                confidence = validated / len(all_results) if all_results else 0.0
+                result = summary_service.create_summary(json_data=summary, confidence_results=confidence)
+                ai_summary = {
+                    "text": result.summary,
+                    "system_confidence": result.confidence
+                }
+
+            _report_progress({"type": "progress", "phase": "ai_summary", "status": "completed"})
+
+        except Exception as e:
+            print(f"[AI Summary] Failed (non-fatal): {e}")
+            _report_progress({"type": "progress", "phase": "ai_summary", "status": "failed"})
 
         _report_progress({"type": "progress", "phase": "complete", "status": "success"})
 
@@ -296,6 +330,7 @@ def classify_pdf(
             "region_detection": region_info,
             "region_used": region,
             "summary": summary,
+            "ai_summary": ai_summary,
             "results": results_dicts
         }
 
