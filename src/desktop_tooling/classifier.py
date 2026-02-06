@@ -21,7 +21,7 @@ if getattr(sys, 'frozen', False):
 else:
     load_dotenv()
 
-from src.classification import (
+from plan_classification import (
     RegionHandler,
     RegionDetectionError,
     BreakoutHandler,
