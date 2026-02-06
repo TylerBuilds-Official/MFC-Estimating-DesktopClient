@@ -264,6 +264,37 @@ def classify_pdf(
         all_results.sort(key=lambda r: r.page_num)
         results_dicts = [r.to_dict() for r in all_results]
 
+        #  Create shared AI client (used for dirname + summary) 
+        ai_client = None
+        if selected_provider == "openai" and openai_api_key:
+            ai_client = OpenAI(api_key=openai_api_key)
+        elif selected_provider == "anthropic" and anthropic_api_key:
+            ai_client = Anthropic(api_key=anthropic_api_key)
+
+        #  AI Directory Naming 
+        ai_dirname = None
+        if ai_client and output_path:
+            try:
+                _report_progress({"type": "progress", "phase": "ai_dirname", "status": "started"})
+                summary_service = AISummaryService(client=ai_client)
+                pdf_filename = os.path.basename(pdf_path)
+                dir_result = summary_service.create_dirname(pdf_filename)
+                ai_dirname = dir_result.dir_name.strip()
+
+                # Sanitize for filesystem safety
+                ai_dirname = "".join(c for c in ai_dirname if c not in r'<>:"/\|?*').strip('. ')
+
+                if ai_dirname:
+                    output_path = os.path.join(output_path, ai_dirname)
+                    os.makedirs(output_path, exist_ok=True)
+                    print(f"[DirName] AI-generated output folder: {output_path}")
+
+                _report_progress({"type": "progress", "phase": "ai_dirname", "status": "completed", "dirname": ai_dirname})
+
+            except Exception as e:
+                print(f"[DirName] Failed (non-fatal): {e}")
+                _report_progress({"type": "progress", "phase": "ai_dirname", "status": "failed"})
+
         #  PHASE 3: Breakout Files
         created_files = {}
         if breakout_files:
@@ -294,29 +325,19 @@ def classify_pdf(
         #  Phase 4: AI Summary
         ai_summary = None
         try:
-            _report_progress({"type": "progress", "phase": "ai_summary", "status": "started"})
-
-            # Build the AI client based on the selected provider
-            if selected_provider == "openai" and openai_api_key:
-                ai_client = OpenAI(api_key=openai_api_key)
-
-            elif selected_provider == "anthropic" and anthropic_api_key:
-                ai_client = Anthropic(api_key=anthropic_api_key)
-
-            else:
-                ai_client = None
-
             if ai_client:
+                _report_progress({"type": "progress", "phase": "ai_summary", "status": "started"})
+
                 summary_service = AISummaryService(client=ai_client)
                 validated = sum(1 for r in all_results if r.validated)
                 confidence = validated / len(all_results) if all_results else 0.0
                 result = summary_service.create_summary(json_data=summary, confidence_results=confidence)
                 ai_summary = {
                     "text": result.summary,
-                    "system_confidence": result.confidence
+                    "confidence": result.confidence
                 }
 
-            _report_progress({"type": "progress", "phase": "ai_summary", "status": "completed"})
+                _report_progress({"type": "progress", "phase": "ai_summary", "status": "completed"})
 
         except Exception as e:
             print(f"[AI Summary] Failed (non-fatal): {e}")
@@ -331,6 +352,8 @@ def classify_pdf(
             "region_used": region,
             "summary": summary,
             "ai_summary": ai_summary,
+            "ai_dirname": ai_dirname,
+            "output_path": output_path,
             "results": results_dicts
         }
 
