@@ -23,6 +23,8 @@ if getattr(sys, 'frozen', False):
 else:
     load_dotenv()
 
+from . import debug_logger as log
+
 from plan_classification import (
     RegionHandler,
     RegionDetectionError,
@@ -117,6 +119,7 @@ def classify_pdf(
 
     # Helper to safely call progress callback
     def _report_progress(data: Dict):
+        log.log_phase(data.get('phase', ''), data.get('status', ''), **{k: v for k, v in data.items() if k not in ('type', 'phase', 'status')})
         if progress_callback:
             progress_callback(data)
 
@@ -153,6 +156,10 @@ def classify_pdf(
                     "error": str(e),
                     "suggestion": "Please provide region coordinates manually"
                 }
+
+        log.info(f'Provider: {selected_provider}')
+        log.info(f'PDF: {pdf_path} | Output: {output_path}')
+        log.info(f'Options: text_first={text_first}, breakout={breakout_files}, batch_size={batch_size}')
 
         if region is None:
             return {"error": "No region provided and auto_detect_region=False"}
@@ -292,8 +299,9 @@ def classify_pdf(
                 _report_progress({"type": "progress", "phase": "ai_dirname", "status": "completed", "dirname": ai_dirname})
 
             except Exception as e:
+                log.error(f'AI dirname failed: {e}', exc=e)
                 print(f"[DirName] Failed (non-fatal): {e}")
-                _report_progress({"type": "progress", "phase": "ai_dirname", "status": "failed"})
+                _report_progress({"type": "progress", "phase": "ai_dirname", "status": "failed", "error": str(e)})
 
         #  PHASE 3: Breakout Files
         created_files = {}
@@ -340,8 +348,9 @@ def classify_pdf(
                 _report_progress({"type": "progress", "phase": "ai_summary", "status": "completed"})
 
         except Exception as e:
+            log.error(f'AI summary failed: {e}', exc=e)
             print(f"[AI Summary] Failed (non-fatal): {e}")
-            _report_progress({"type": "progress", "phase": "ai_summary", "status": "failed"})
+            _report_progress({"type": "progress", "phase": "ai_summary", "status": "failed", "error": str(e)})
 
         _report_progress({"type": "progress", "phase": "complete", "status": "success"})
 
@@ -359,6 +368,7 @@ def classify_pdf(
 
     except Exception as e:
         import traceback
+        log.error(f'Classification failed: {e}', exc=e)
         return {
             "error": f"Classification failed: {str(e)}",
             "traceback": traceback.format_exc()

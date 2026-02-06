@@ -82,7 +82,17 @@ Examples:
         help="Max concurrent API batches (default: 8)"
     )
 
+    parser.add_argument(
+        "--debug",
+        action="store_true",
+        help="Enable debug logging to pdf_classifier.log"
+    )
+
     args = parser.parse_args()
+
+    # Initialize debug logger
+    from .debug_logger import init_logger
+    init_logger(enabled=args.debug)
 
     # Parse region JSON if provided
     region = None
