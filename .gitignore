@@ -1,0 +1,29 @@
+# Virtual environment
+.venv/
+venv/
+env/
+
+# IDE
+.idea/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+*.egg
+dist/
+build/
+
+# Environment
+.env
+.env.local
+
+# OS
+Thumbs.db
+Desktop.ini
+.DS_Store
+
+# Output / temp
+output/
+*.log
