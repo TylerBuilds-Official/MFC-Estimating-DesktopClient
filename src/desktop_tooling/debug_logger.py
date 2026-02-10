@@ -23,13 +23,8 @@ def init_logger(enabled: bool = False) -> None:
         _logger = None
         return
 
-    # Determine log file location
-    if getattr(sys, 'frozen', False):
-        log_dir = os.path.dirname(sys.executable)
-    else:
-        # Project root: up from src/desktop_tooling/
-        log_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
-
+    # Always write to user home — easy to find regardless of frozen/dev
+    log_dir = os.path.expanduser('~')
     log_path = os.path.join(log_dir, 'pdf_classifier.log')
 
     _logger = logging.getLogger('pdf_classifier')

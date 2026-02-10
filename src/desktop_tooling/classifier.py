@@ -35,6 +35,7 @@ from plan_classification import (
     PageClassification,
     AISummaryService,
     extract_image_from_region,
+    extract_full_page_image,
     optimize_image_for_api,
     get_pdf_page_count,
     bulk_extract_text_from_regions
@@ -303,6 +304,55 @@ def classify_pdf(
                 print(f"[DirName] Failed (non-fatal): {e}")
                 _report_progress({"type": "progress", "phase": "ai_dirname", "status": "failed", "error": str(e)})
 
+        #  Date Extraction (one page per category)
+        date_map = None
+        if ai_client and breakout_files:
+            try:
+                _report_progress({"type": "progress", "phase": "date_extraction", "status": "started"})
+                summary_service = AISummaryService(client=ai_client)
+
+                # Group results by category, pick first page from each
+                category_first_page = {}
+                for r in all_results:
+                    if r.category not in category_first_page:
+                        category_first_page[r.category] = r.page_num
+
+                log.info(f'[Date] Categories to extract: {list(category_first_page.keys())}')
+                log.info(f'[Date] Representative pages: {category_first_page}')
+
+                # Render full pages at high quality (dates can be anywhere on the sheet)
+                doc = fitz.open(pdf_path)
+                category_images = {}
+                for cat, page_num in category_first_page.items():
+                    try:
+                        page = doc.load_page(page_num)
+                        img_bytes = extract_full_page_image(page, zoom=3.0, max_dimension=4096, quality=95)
+                        category_images[cat] = img_bytes
+                        log.info(f'[Date] Full page render for {cat} (page {page_num}): {len(img_bytes)} bytes')
+                    except Exception as e:
+                        log.info(f'[Date] WARNING: Failed to render page for {cat} (page {page_num}): {e}')
+                doc.close()
+
+                log.info(f'[Date] Rendered {len(category_images)} full-page images')
+
+                total_cats = len(category_images)
+                log.info(f'[Date] Sending {total_cats} images to AI for date extraction')
+                print(f"[Date] Extracting dates from {total_cats} categories...")
+
+                date_map = summary_service.extract_dates_from_classes(category_images, logger=log)
+
+                for cat, date_val in date_map.items():
+                    log.info(f'[Date] Result: {cat} -> {date_val}')
+                    print(f"  [Date] {cat}: {date_val}")
+
+                _report_progress({"type": "progress", "phase": "date_extraction", "status": "completed"})
+
+            except Exception as e:
+                log.error(f'Date extraction failed: {e}', exc=e)
+                print(f"[Date] Failed (non-fatal): {e}")
+                _report_progress({"type": "progress", "phase": "date_extraction", "status": "failed", "error": str(e)})
+                date_map = None
+
         #  PHASE 3: Breakout Files
         created_files = {}
         if breakout_files:
@@ -322,7 +372,8 @@ def classify_pdf(
                 results=results_dicts,
                 pdf_path=pdf_path,
                 output_path=output_path,
-                on_progress=_breakout_progress
+                on_progress=_breakout_progress,
+                date_map=date_map
             )
 
             _report_progress({"type": "progress", "phase": "breakout", "status": "completed"})
@@ -408,14 +459,14 @@ def _extract_page_images_selective(
     return page_images
 
 
-def _breakout_categories(results: List[Dict], pdf_path: str, output_path: str = None, on_progress: callable = None) -> Dict:
+def _breakout_categories(results: List[Dict], pdf_path: str, output_path: str = None, on_progress: callable = None, date_map: dict = None) -> Dict:
     """Create separate PDFs for each discipline"""
     handler = BreakoutHandler(
         classification_results=results,
         pdf_path=pdf_path,
         output_dir=output_path
     )
-    return handler.breakout(on_progress=on_progress)
+    return handler.breakout(on_progress=on_progress, date_map=date_map)
 
 
 def _build_summary(
