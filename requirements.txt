@@ -4,7 +4,6 @@
 
 # Classification engine dependencies (also in PDFClassificationEngine)
 PyMuPDF>=1.23.0
-openai>=1.0.0
 anthropic>=0.20.0
 Pillow>=10.0.0
 
