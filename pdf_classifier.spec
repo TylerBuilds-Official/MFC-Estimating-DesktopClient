@@ -18,8 +18,7 @@ a = Analysis(
     pathex=[],
     binaries=[],
     datas=[
-        # Bundle .env for API keys (placed in _internal at runtime)
-        ('.env', '.'),
+        # API keys injected by parent process at runtime — no .env bundled
     ],
     hiddenimports=[
         'desktop_tooling',

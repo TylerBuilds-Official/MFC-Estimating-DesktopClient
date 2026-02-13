@@ -13,11 +13,9 @@ from typing import Dict, List, Callable
 from anthropic import Anthropic
 from dotenv import load_dotenv
 
-# For PyInstaller: load .env from _internal folder
-if getattr(sys, 'frozen', False):
-    _exe_dir = os.path.dirname(sys.executable)
-    load_dotenv(os.path.join(_exe_dir, '_internal', '.env'))
-else:
+# In production (frozen), API keys are injected by the parent process.
+# In development, load from .env for local testing.
+if not getattr(sys, 'frozen', False):
     load_dotenv()
 
 from . import debug_logger as log
