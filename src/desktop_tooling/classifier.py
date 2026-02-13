@@ -33,10 +33,15 @@ from plan_classification import (
 )
 
 
+# Disciplines included in "standard" breakout mode
+STANDARD_DISCIPLINES = {'Architectural', 'Structural', 'Landscape', 'Civil', 'Unknown'}
+
+
 def classify_pdf(
         pdf_path: str,
         output_path: str | None = None,
         breakout_files: bool = True,
+        breakout_filter: str = 'all',
         max_workers: int = 8,
         progress_callback: Callable[[Dict], None] | None = None ) -> Dict:
 
@@ -124,6 +129,21 @@ def classify_pdf(
         if breakout_files:
             _report({"type": "progress", "phase": "breakout", "status": "creating_files"})
 
+            # Always merge General → Architectural for breakout
+            breakout_results = [
+                {**r, 'discipline': 'Architectural'}
+                if (r.get('discipline') or r.get('category', 'Unknown')) == 'General'
+                else r
+                for r in results_dicts
+            ]
+
+            # Filter results for breakout if using standard mode
+            if breakout_filter == 'standard':
+                breakout_results = [
+                    r for r in breakout_results
+                    if (r.get('discipline') or r.get('category', 'Unknown')) in STANDARD_DISCIPLINES
+                ]
+
             def _breakout_progress(current, total, discipline_name):
 
                 _report({
@@ -136,31 +156,20 @@ def classify_pdf(
                 })
 
             created_files = _run_breakout(
-                results=results_dicts,
+                results=breakout_results,
                 pdf_path=pdf_path,
                 output_path=output_path,
                 on_progress=_breakout_progress,
                 date_map=date_map,
             )
 
+            # Split merged Architectural back into separate display rows
+            created_files = _split_general_display(created_files, results_dicts)
+
             _report({"type": "progress", "phase": "breakout", "status": "completed"})
 
-        # ── Phase 6: AI Summary ───────────────────────────────────────
+        # ── Phase 6: AI Summary (disabled — guts kept for future use) ──
         ai_summary = None
-        try:
-            _report({"type": "progress", "phase": "ai_summary", "status": "started"})
-
-            summary_service = AISummaryService(client=ai_client)
-            summary_data    = _build_summary(results, engine, created_files)
-            avg_confidence  = sum(r.confidence for r in results) / len(results) if results else 0.0
-            result          = summary_service.create_summary(json_data=summary_data, confidence_results=avg_confidence)
-            ai_summary      = {"text": result.summary, "confidence": result.confidence}
-
-            _report({"type": "progress", "phase": "ai_summary", "status": "completed"})
-
-        except Exception as e:
-            log.error(f'AI summary failed: {e}', exc=e)
-            _report({"type": "progress", "phase": "ai_summary", "status": "failed", "error": str(e)})
 
         # ── Done ──────────────────────────────────────────────────────
         _report({"type": "progress", "phase": "complete", "status": "success"})
@@ -210,6 +219,64 @@ def _run_breakout(
     )
 
     return handler.breakout(on_progress=on_progress, date_map=date_map)
+
+
+def _split_general_display(
+        created_files: Dict,
+        original_results: List[Dict] ) -> Dict:
+
+    """Split merged Architectural entry back into Architectural + General display rows.
+
+    BreakoutHandler produces one 'Architectural' PDF containing both.
+    This restores separate rows for the UI DataGrid with individual
+    page counts, both pointing to the same output file.
+    """
+
+    files = created_files.get('created_files', [])
+    if not files:
+        return created_files
+
+    arch_entry = next((f for f in files if f['discipline'] == 'Architectural'), None)
+    if not arch_entry:
+        return created_files
+
+    # Check if any General pages existed in the original classification
+    general_indices = [
+        r.get('page_index', r.get('page_num', 0))
+        for r in original_results
+        if (r.get('discipline') or r.get('category', 'Unknown')) == 'General'
+    ]
+
+    if not general_indices:
+        return created_files
+
+    arch_indices = [
+        r.get('page_index', r.get('page_num', 0))
+        for r in original_results
+        if (r.get('discipline') or r.get('category', 'Unknown')) == 'Architectural'
+    ]
+
+    output_path = arch_entry['output_path']
+    files.remove(arch_entry)
+
+    # Architectural row (original A-sheets only)
+    if arch_indices:
+        files.append({
+            'discipline':   'Architectural',
+            'page_count':   len(arch_indices),
+            'output_path':  output_path,
+            'page_numbers': sorted(p + 1 for p in arch_indices),
+        })
+
+    # General row (original G-sheets, same output file)
+    files.append({
+        'discipline':   'General',
+        'page_count':   len(general_indices),
+        'output_path':  output_path,
+        'page_numbers': sorted(p + 1 for p in general_indices),
+    })
+
+    return created_files
 
 
 def _build_summary(

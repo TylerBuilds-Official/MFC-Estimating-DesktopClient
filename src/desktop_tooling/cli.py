@@ -62,6 +62,14 @@ Examples:
     )
 
     parser.add_argument(
+        "--breakout-filter",
+        type=str,
+        choices=["all", "standard"],
+        default="all",
+        help="Filter breakout files: 'all' for every discipline, 'standard' for Arch/Struct/Land/Civil only (default: all)"
+    )
+
+    parser.add_argument(
         "--debug",
         action="store_true",
         help="Enable debug logging to ~/pdf_classifier.log"
@@ -89,6 +97,7 @@ Examples:
             pdf_path=args.pdf_path,
             output_path=args.output_path,
             breakout_files=not args.no_breakout,
+            breakout_filter=args.breakout_filter,
             max_workers=args.max_workers,
             progress_callback=progress_callback,
         )
