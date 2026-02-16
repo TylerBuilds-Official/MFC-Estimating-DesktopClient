@@ -32,7 +32,15 @@ from plan_classification import (
 
 
 # Disciplines included in "standard" breakout mode
-STANDARD_DISCIPLINES = {'Architectural', 'Structural', 'Landscape', 'Civil', 'Unknown'}
+# Base disciplines + sub-disciplines that belong in standard exports
+# Civil sub-disciplines (CG, CS, CU, etc.) are intentionally excluded
+STANDARD_DISCIPLINES = {
+    'Architectural', 'Architectural - Interiors', 'Architectural - Finishes',
+    'Structural',
+    'Landscape',
+    'Civil',
+    'Unknown',
+}
 
 
 def classify_pdf(
